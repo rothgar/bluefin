@@ -11,8 +11,6 @@ if [[ -f $VER_FILE && $VER = $VER_RAN ]]; then
   exit 0
 fi
 
-notify-send "Flatpak installer" "Currently installing system flatpaks" --app-name="Flatpak installer" -u NORMAL
-
 # Remove fedora flatpak repo
 if grep -qz 'fedora' <<< $(flatpak remotes); then
   flatpak remote-delete --user fedora --force
@@ -25,22 +23,15 @@ REMOVE_LIST=$(cat /etc/flatpak/system/remove)
 
 # Install flatpaks in list
 if [[ -n $INSTALL_LIST ]]; then
-  for flatpak in $INSTALL_LIST; do
-    if grep -qvz $flatpak <<< $FLATPAK_LIST; then
-      flatpak install --system --noninteractive flathub $flatpak
-    fi
-  done
+  if ! flatpak install --system --noninteractive flathub ${INSTALL_LIST[@]}; then
+    # exit on error
+    exit 1
+  fi
 fi
-
-notify-send "Flatpak installer" "Finished installing system flatpaks" --app-name="Flatpak installer" -u NORMAL
 
 # Remove flatpaks in list
 if [[ -n $REMOVE_LIST ]]; then
-  for flatpak in $REMOVE_LIST; do
-    if grep -qz $flatpak <<< $FLATPAK_LIST; then
-      flatpak remove --system --noninteractive $flatpak
-    fi
-  done
+  flatpak remove --system --noninteractive ${REMOVE_LIST[@]}
 fi
 
 # Opt out of and remove Fedora's flatpak repo
@@ -49,11 +40,19 @@ if grep -qz 'fedora' <<< $(flatpak remotes); then
   /usr/bin/fedora-third-party disable
   flatpak remote-delete fedora --force
 
-  FEDORA_FLATPAKS=$(flatpak list --columns=application,origin | grep -w 'fedora' | awk '{print $1}')
-  for flatpak in $FEDORA_FLATPAKS; do
-    flatpak remove --system --noninteractive $flatpak
-  done
+  # Remove flatpak apps from origin fedora
+  FEDORA_FLATPAKS=$(flatpak list --app --columns=application,origin | grep -w 'fedora' | awk '{print $1}')
+  flatpak remove --system --noninteractive ${FEDORA_FLATPAKS[@]}
+
+  # Remove flatpak runtimes from origin fedora
+  FEDORA_FLATPAKS=$(flatpak list --runtime --columns=application,arch,branch,origin | grep -w 'fedora' | awk '{print $1"/"$2"/"$3}')
+  flatpak remove --system --noninteractive ${FEDORA_FLATPAKS[@]}
 fi
+
+# Disable the system variant of the flathub repo
+flatpak remote-modify flathub --disable --system
+
+notify-send "Flatpak installer" "Finished installing system flatpaks" --app-name="Flatpak installer" -u NORMAL
 
 mkdir -p /etc/ublue
 echo $VER > $VER_FILE
